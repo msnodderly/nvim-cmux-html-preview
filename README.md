@@ -1,11 +1,21 @@
-# cmux-preview
+# nvim-cmux-html-preview
+
 
 Live-preview static HTML in a [cmux](https://cmux.io) browser pane while you
 edit in vim.
 
+I wanted a similar experience to cmux's built-in markdown preview, except for editing HTML. This is a bit of a kludge, but it allows a live preview in the cmux browser pane that automatically refreshes as soon as you save in Vim/Neovim. 
+
+
+
 Save a file → the pane reloads. Switch to a different HTML buffer → the pane
-follows you. No build step, no file watchers, no websockets, no browser
-extension: a static file server, cmux's browser pane, and two vim autocmds.
+follows you. No switching panes and hitting reload up every time, just `:w` and change is instantly visible. 
+
+
+<img width="1433" height="885" alt="image" src="https://github.com/user-attachments/assets/593eac9d-09a8-4335-bfd2-fb912eeecbb1" />
+
+
+
 
 ## Requirements
 
