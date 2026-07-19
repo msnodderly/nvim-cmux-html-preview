@@ -6,16 +6,16 @@
 " Or from inside vim:      :source preview.vim
 " Or from project config:  see the README's .nvim.lua example.
 "
-" The preview command is resolved in order: g:preview_cmd if set, a
-" `preview` script next to this file, then `preview` on $PATH.
+" The preview command is resolved in order: g:nvim_cmux_html_preview_cmd if
+" set, a `preview` script next to this file, then `preview` on $PATH.
 
-if exists('g:loaded_cmux_preview')
+if exists('g:loaded_nvim_cmux_html_preview')
   finish
 endif
-let g:loaded_cmux_preview = 1
+let g:loaded_nvim_cmux_html_preview = 1
 
-if exists('g:preview_cmd')
-  let s:cmd = g:preview_cmd
+if exists('g:nvim_cmux_html_preview_cmd')
+  let s:cmd = g:nvim_cmux_html_preview_cmd
 elseif executable(expand('<sfile>:p:h') . '/preview')
   let s:cmd = expand('<sfile>:p:h') . '/preview'
 else
@@ -23,10 +23,10 @@ else
 endif
 
 function! s:Sync() abort
-  call system(s:cmd . ' sync ' . shellescape(expand('%:p')) . ' &')
+  call system(shellescape(s:cmd) . ' sync ' . shellescape(expand('%:p')) . ' &')
 endfunction
 
-augroup CmuxPreview
+augroup NvimCmuxHtmlPreview
   autocmd!
   autocmd BufWritePost,BufEnter *.html call s:Sync()
 augroup END

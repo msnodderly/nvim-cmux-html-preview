@@ -57,19 +57,62 @@ server_running() {
     curl -sf -o /dev/null "http://localhost:$1/" 2>/dev/null
 }
 
+# Sets SERVER_PID when the recorded process is one of our HTTP servers.
+recorded_server() {
+    port=$1
+    pid_file="$STATE_DIR/preview-$port.pid"
+    [ -f "$pid_file" ] || return 1
+    SERVER_PID=$(cat "$pid_file")
+    case "$SERVER_PID" in
+    ''|*[!0-9]*) return 1 ;;
+    esac
+    command=$(ps -p "$SERVER_PID" -o command= 2>/dev/null) || return 1
+    case "$command" in
+    *"python3 -m http.server $port "*) return 0 ;;
+    *) return 1 ;;
+    esac
+}
+
 start_server() {
     port=$1 dir=$2
-    if server_running "$port"; then
+    pid_file="$STATE_DIR/preview-$port.pid"
+    log_file="$STATE_DIR/preview-$port.log"
+
+    if recorded_server "$port" && server_running "$port"; then
         echo "server for $dir already running on :$port"
-    else
-        nohup python3 -m http.server "$port" --directory "$ROOT/$dir" \
-            >"$STATE_DIR/preview-$port.log" 2>&1 &
-        echo "serving $dir on http://localhost:$port/"
+        return
     fi
+    rm -f "$pid_file"
+    if server_running "$port"; then
+        echo "error: port $port is already used by another server" >&2
+        return 1
+    fi
+    if [ ! -d "$ROOT/$dir" ]; then
+        echo "error: serve directory does not exist: $ROOT/$dir" >&2
+        return 1
+    fi
+
+    nohup python3 -m http.server "$port" --bind 127.0.0.1 \
+        --directory "$ROOT/$dir" >"$log_file" 2>&1 &
+    SERVER_PID=$!
+    printf '%s\n' "$SERVER_PID" >"$pid_file"
+    sleep 0.1
+    if ! kill -0 "$SERVER_PID" 2>/dev/null; then
+        rm -f "$pid_file"
+        echo "error: server for $dir failed to start; see $log_file" >&2
+        return 1
+    fi
+    echo "serving $dir on http://localhost:$port/"
 }
 
 stop_server() {
-    pkill -f "http.server $1" 2>/dev/null && echo "stopped server on :$1" || true
+    port=$1
+    pid_file="$STATE_DIR/preview-$port.pid"
+    if recorded_server "$port"; then
+        kill "$SERVER_PID" 2>/dev/null || true
+        echo "stopped server on :$port"
+    fi
+    rm -f "$pid_file"
 }
 
 saved_surface() {
@@ -114,7 +157,11 @@ stop)
     ROOT=$(find_root "$PWD")
     load_config
     if saved_surface; then
-        cmux close-surface --surface "$SURFACE" && echo "closed preview pane $SURFACE"
+        if cmux close-surface --surface "$SURFACE"; then
+            echo "closed preview pane $SURFACE"
+        else
+            echo "warning: could not close preview pane $SURFACE" >&2
+        fi
     fi
     rm -f "$STATE_FILE"
     printf '%s' "$SERVES" | while read -r dir port; do
@@ -145,9 +192,15 @@ sync)
         esac
         case "$FILE" in
         ("$prefix"/*)
-            # Serve directories at their canonical URL: mds/index.html -> /mds/
+            # Serve index files at their canonical directory URL.
             rel=${FILE#"$prefix"/}
-            rel=${rel%index.html}
+            case "$rel" in
+            (index.html|*/index.html) rel=${rel%index.html} ;;
+            esac
+            # Encode spaces, fragments, Unicode, and other URL-sensitive bytes.
+            rel=$(python3 -c \
+                'import sys, urllib.parse; print(urllib.parse.quote(sys.argv[1], safe="/"))' \
+                "$rel")
             printf 'http://localhost:%s/%s\n' "$port" "$rel"
             break
             ;;
