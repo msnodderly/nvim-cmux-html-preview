@@ -1,0 +1,170 @@
+#!/bin/sh
+# preview — live-preview static HTML in a cmux browser pane.
+#
+# Usage:
+#   preview start        start local servers + open the preview pane
+#   preview stop         stop servers + close the pane
+#   preview sync FILE    point the pane at FILE's page (used by preview.vim)
+#
+# Configuration: optional .preview.conf at the repo root (the nearest
+# ancestor directory containing .preview.conf or .git). Lines:
+#
+#   serve DIR PORT    serve DIR at http://localhost:PORT/
+#   open PATH         page to open on start (default: / on the first DIR)
+#
+# Without a config, the repo root is served on port 8450.
+#
+# Requires cmux (CMUX_SOCKET_PATH set) and python3.
+
+set -eu
+
+find_root() {
+    dir=$1
+    while [ "$dir" != "/" ]; do
+        if [ -f "$dir/.preview.conf" ] || [ -d "$dir/.git" ]; then
+            printf '%s\n' "$dir"
+            return
+        fi
+        dir=$(dirname "$dir")
+    done
+    printf '%s\n' "$1"
+}
+
+# Sets SERVES ("DIR PORT" per line), OPEN_PATH, STATE_DIR, STATE_FILE.
+load_config() {
+    SERVES=""
+    OPEN_PATH="/"
+    if [ -f "$ROOT/.preview.conf" ]; then
+        while read -r key a b; do
+            case "$key" in
+            serve) SERVES="${SERVES}${a} ${b}
+" ;;
+            open) OPEN_PATH=$a ;;
+            esac
+        done <"$ROOT/.preview.conf"
+    fi
+    [ -n "$SERVES" ] || SERVES=". 8450
+"
+    if [ -d "$ROOT/.git" ]; then
+        STATE_DIR="$ROOT/.git"
+    else
+        STATE_DIR="$ROOT"
+    fi
+    STATE_FILE="$STATE_DIR/preview-state"
+}
+
+server_running() {
+    curl -sf -o /dev/null "http://localhost:$1/" 2>/dev/null
+}
+
+start_server() {
+    port=$1 dir=$2
+    if server_running "$port"; then
+        echo "server for $dir already running on :$port"
+    else
+        nohup python3 -m http.server "$port" --directory "$ROOT/$dir" \
+            >"$STATE_DIR/preview-$port.log" 2>&1 &
+        echo "serving $dir on http://localhost:$port/"
+    fi
+}
+
+stop_server() {
+    pkill -f "http.server $1" 2>/dev/null && echo "stopped server on :$1" || true
+}
+
+saved_surface() {
+    [ -f "$STATE_FILE" ] || return 1
+    SURFACE=$(cat "$STATE_FILE")
+    [ -n "$SURFACE" ] || return 1
+    cmux browser "$SURFACE" get url >/dev/null 2>&1
+}
+
+cmd=${1:-start}
+
+case "$cmd" in
+start)
+    if [ -z "${CMUX_SOCKET_PATH:-}" ]; then
+        echo "error: not inside cmux (CMUX_SOCKET_PATH unset)" >&2
+        exit 1
+    fi
+    ROOT=$(find_root "$PWD")
+    load_config
+    printf '%s' "$SERVES" | while read -r dir port; do
+        start_server "$port" "$dir"
+    done
+    FIRST_PORT=$(printf '%s' "$SERVES" | while read -r dir port; do
+        printf '%s\n' "$port"
+        break
+    done)
+    if saved_surface; then
+        echo "reusing preview pane $SURFACE"
+    else
+        SURFACE=$(cmux browser open "http://localhost:$FIRST_PORT$OPEN_PATH" |
+            grep -o 'surface:[0-9]*' | head -1)
+        if [ -z "$SURFACE" ]; then
+            echo "error: could not open cmux browser pane" >&2
+            exit 1
+        fi
+        printf '%s\n' "$SURFACE" >"$STATE_FILE"
+        echo "opened preview pane $SURFACE"
+    fi
+    echo "ready — edit with: vim -S preview.vim <file>.html"
+    ;;
+stop)
+    ROOT=$(find_root "$PWD")
+    load_config
+    if saved_surface; then
+        cmux close-surface --surface "$SURFACE" && echo "closed preview pane $SURFACE"
+    fi
+    rm -f "$STATE_FILE"
+    printf '%s' "$SERVES" | while read -r dir port; do
+        stop_server "$port"
+    done
+    ;;
+sync)
+    # Called by preview.vim on every save / buffer switch. Navigates the
+    # pane if it's on a different page, reloads if it's already there.
+    # Exits silently when preview isn't running — vim never sees an error.
+    FILE=${2:-}
+    [ -n "$FILE" ] || exit 0
+    [ -n "${CMUX_SOCKET_PATH:-}" ] || exit 0
+    case "$FILE" in
+    /*) ;;
+    *) FILE=$PWD/$FILE ;;
+    esac
+    ROOT=$(find_root "$(dirname "$FILE")")
+    load_config
+    [ -f "$STATE_FILE" ] || exit 0
+    SURFACE=$(cat "$STATE_FILE")
+    [ -n "$SURFACE" ] || exit 0
+
+    url=$(printf '%s' "$SERVES" | while read -r dir port; do
+        case "$dir" in
+        (.) prefix=$ROOT ;;
+        (*) prefix=$ROOT/$dir ;;
+        esac
+        case "$FILE" in
+        ("$prefix"/*)
+            # Serve directories at their canonical URL: mds/index.html -> /mds/
+            rel=${FILE#"$prefix"/}
+            rel=${rel%index.html}
+            printf 'http://localhost:%s/%s\n' "$port" "$rel"
+            break
+            ;;
+        esac
+    done)
+    [ -n "$url" ] || exit 0
+
+    current=$(cmux browser "$SURFACE" get url 2>/dev/null |
+        grep -o 'http://[^ ]*' | head -1) || exit 0
+    if [ "$current" = "$url" ]; then
+        cmux browser "$SURFACE" reload
+    else
+        cmux browser "$SURFACE" goto "$url"
+    fi
+    ;;
+*)
+    echo "usage: preview [start|stop|sync FILE]" >&2
+    exit 1
+    ;;
+esac
