@@ -12,7 +12,7 @@ Save a file → the pane reloads. Switch to a different HTML buffer → the pane
 follows you. No switching panes and hitting reload up every time, just `:w` and change is instantly visible. 
 
 
-<img width="1433" height="885" alt="image" src="https://github.com/user-attachments/assets/593eac9d-09a8-4335-bfd2-fb912eeecbb1" />
+<img width="1443" height="903" alt="image" src="https://github.com/user-attachments/assets/c4ed734f-a02e-42f9-97c9-0040dc7e60ab" />
 
 
 
