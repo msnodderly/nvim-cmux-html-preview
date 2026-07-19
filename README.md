@@ -6,10 +6,8 @@ edit in vim.
 
 I wanted a similar experience to cmux's built-in markdown preview, except for editing HTML. This is a bit of a kludge, but it allows a live preview in the cmux browser pane that automatically refreshes as soon as you save in Vim/Neovim. 
 
-
-
 Save a file → the pane reloads. Switch to a different HTML buffer → the pane
-follows you. No switching panes and hitting reload up every time, just `:w` and change is instantly visible. 
+follows you. No switching panes to refresh, just `:w` and change is instantly visible. 
 
 
 <img width="1443" height="903" alt="image" src="https://github.com/user-attachments/assets/c4ed734f-a02e-42f9-97c9-0040dc7e60ab" />
